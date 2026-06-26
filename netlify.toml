@@ -1,0 +1,8 @@
+[build]
+  publish = "."
+
+[[redirects]]
+  from = "/data.json"
+  to = "/.netlify/functions/data"
+  status = 200
+  force = true
