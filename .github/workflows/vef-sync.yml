@@ -19,14 +19,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Selaras ke main terkini
-        run: |
-          echo "=== VEF SYNC v3 ==="
-          git config user.name "vef-bot"
-          git config user.email "vef-bot@users.noreply.github.com"
-          git fetch origin main
-          git reset --hard origin/main
-
       - name: Tarik vef-data.json dari OneDrive
         env:
           VEF_URL: ${{ secrets.VEF_URL }}
@@ -36,12 +28,28 @@ jobs:
                "$VEF_URL" -o data.json
           python3 -c "import json; json.load(open('data.json')); print('JSON OK')"
 
-      - name: Commit & push
+      - name: Commit & push (retry)
         run: |
-          git add data.json
-          if git diff --staged --quiet; then
-            echo "Takde perubahan."
-            exit 0
-          fi
-          git commit -m "VEF sync: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          git push origin HEAD:main
+          echo "=== VEF SYNC v4 ==="
+          git config user.name "vef-bot"
+          git config user.email "vef-bot@users.noreply.github.com"
+          cp data.json /tmp/data.json
+          for i in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            cp /tmp/data.json data.json
+            git add data.json
+            if git diff --staged --quiet; then
+              echo "Takde perubahan."
+              exit 0
+            fi
+            git commit -m "VEF sync: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            if git push origin HEAD:main; then
+              echo "Pushed OK v4."
+              exit 0
+            fi
+            echo "Race, retry $i..."
+            sleep 4
+          done
+          echo "Gagal selepas 5 cuba."
+          exit 1
