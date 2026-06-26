@@ -372,7 +372,7 @@ function renderTable(records){
 async function load(){
   const dot = document.getElementById("dot"), status = document.getElementById("status");
   try{
-    const res = await fetch("data.json?t=" + Date.now());
+    const res = await fetch("/data.json", {cache:"no-store"});
     if(!res.ok) throw new Error(res.status);
     const d = await res.json();
     const recs = d.records || [];
