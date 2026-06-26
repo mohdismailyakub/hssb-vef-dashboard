@@ -1,52 +1,44 @@
-// Tarik vef-data.json LIVE dari OneDrive. SharePoint perlukan cookie dibawa sepanjang
-// redirect (macam "cookie jar" curl) — fetch biasa tak buat, sebab tu kita ikut redirect manual.
+// Tarik vef-data.json LIVE dari OneDrive guna endpoint api.onedrive.com/shares.
+// VEF_URL mesti link kongsi ASAL (bentuk ".../:u:/g/personal/.../TOKEN?e=...").
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
 
-async function fetchWithCookies(startUrl, maxHops = 8) {
-  let url = startUrl;
-  let cookies = "";
-  for (let i = 0; i < maxHops; i++) {
-    const res = await fetch(url, {
-      headers: { "User-Agent": UA, "Accept": "*/*", ...(cookies ? { Cookie: cookies } : {}) },
-      redirect: "manual",
-    });
-    // Kumpul cookie dari setiap hop
-    let setList = [];
-    try { setList = res.headers.getSetCookie ? res.headers.getSetCookie() : []; } catch (_) {}
-    if (!setList.length) {
-      const sc = res.headers.get("set-cookie");
-      if (sc) setList = [sc];
-    }
-    if (setList.length) {
-      const jar = setList.map((c) => c.split(";")[0]).join("; ");
-      cookies = cookies ? cookies + "; " + jar : jar;
-    }
-    // Ikut redirect
-    if (res.status >= 300 && res.status < 400) {
-      const loc = res.headers.get("location");
-      if (!loc) return res;
-      url = new URL(loc, url).toString();
-      continue;
-    }
-    return res; // 200 atau error sebenar
-  }
-  throw new Error("terlalu banyak redirect");
+// Encode link kongsi -> share ID (format Microsoft: u! + base64url)
+function shareId(u) {
+  const b64 = Buffer.from(u, "utf8").toString("base64");
+  return "u!" + b64.replace(/=+$/, "").replace(/\//g, "_").replace(/\+/g, "-");
+}
+
+async function getJson(u) {
+  const res = await fetch(u, { headers: { "User-Agent": UA, Accept: "*/*" }, redirect: "follow" });
+  if (!res.ok) return null;
+  const text = await res.text();
+  try { JSON.parse(text); return text; } catch { return null; }
 }
 
 export default async () => {
   const url = process.env.VEF_URL;
   const cors = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json; charset=utf-8" };
   if (!url) {
-    return new Response(JSON.stringify({ error: "VEF_URL belum di-set di Netlify" }),
-      { status: 500, headers: cors });
+    return new Response(JSON.stringify({ error: "VEF_URL belum di-set" }), { status: 500, headers: cors });
   }
+
+  // Kaedah 1: endpoint shares (pulangkan fail terus, tiada cookie/HTML)
   try {
-    const res = await fetchWithCookies(url);
-    if (!res.ok) throw new Error("OneDrive status " + res.status);
-    const text = await res.text();
-    JSON.parse(text); // pastikan JSON sah, bukan page HTML
-    return new Response(text, { status: 200, headers: { ...cors, "Cache-Control": "public, max-age=60" } });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { status: 502, headers: cors });
-  }
+    const sid = shareId(url);
+    const viaShares = await getJson(`https://api.onedrive.com/v1.0/shares/${sid}/root/content`);
+    if (viaShares) {
+      return new Response(viaShares, { status: 200, headers: { ...cors, "Cache-Control": "public, max-age=60" } });
+    }
+  } catch (_) {}
+
+  // Kaedah 2: cuba terus (kalau VEF_URL sememangnya direct-download)
+  try {
+    const direct = await getJson(url);
+    if (direct) {
+      return new Response(direct, { status: 200, headers: { ...cors, "Cache-Control": "public, max-age=60" } });
+    }
+  } catch (_) {}
+
+  return new Response(JSON.stringify({ error: "Gagal dapat JSON dari OneDrive (kedua-dua kaedah)" }),
+    { status: 502, headers: cors });
 };
