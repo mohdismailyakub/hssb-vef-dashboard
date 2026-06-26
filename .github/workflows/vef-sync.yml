@@ -1,8 +1,8 @@
 name: VEF Dashboard Sync
 
 on:
-  # schedule:
-  #   - cron: "* * * * *"
+   schedule:
+     - cron: "* * * * *"
   workflow_dispatch:
 
 concurrency:
