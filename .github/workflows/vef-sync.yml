@@ -23,7 +23,9 @@ jobs:
         env:
           VEF_URL: ${{ secrets.VEF_URL }}
         run: |
-          curl -fL "$VEF_URL" -o data.json
+          curl -fL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
+               -c /tmp/cj.txt -b /tmp/cj.txt \
+               "$VEF_URL" -o data.json
           python3 -c "import json; json.load(open('data.json')); print('JSON OK')"
 
       - name: Commit kalau ada perubahan
