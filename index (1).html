@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSSB AVSEC — Visitor Entry Live Board</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --red:#C8102E; --gold:#B8902E; --ink:#1a1816; --muted:#6b665f;
+    --line:#e7e2d8; --bg:#faf8f3; --card:#ffffff; --inside:#C8102E; --ok:#2f7d54;
+    --gold2:#d8b45a; --ink2:#3a352e;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.45}
+  .wrap{max-width:1240px;margin:0 auto;padding:24px 20px 60px}
+
+  header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;
+    border-bottom:3px solid var(--gold);padding-bottom:16px;margin-bottom:22px}
+  .brand{display:flex;align-items:center;gap:14px}
+  .mark{width:44px;height:44px;border-radius:8px;background:var(--red);color:#fff;
+    display:grid;place-items:center;font-weight:800;font-size:19px;letter-spacing:-.5px}
+  .brand h1{font-size:20px;font-weight:700;letter-spacing:-.3px}
+  .brand p{font-size:11.5px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase}
+  .live{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--ok)}
+  .dot.pulse{animation:p 1.6s infinite}
+  @keyframes p{0%{box-shadow:0 0 0 0 rgba(47,125,84,.5)}70%{box-shadow:0 0 0 7px rgba(47,125,84,0)}100%{box-shadow:0 0 0 0 rgba(47,125,84,0)}}
+
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;
+    border-left:4px solid var(--gold)}
+  .kpi.alert{border-left-color:var(--inside)}
+  .kpi .label{font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);font-weight:600}
+  .kpi .num{font-size:38px;font-weight:800;letter-spacing:-1.5px;margin-top:4px;font-variant-numeric:tabular-nums}
+  .kpi.alert .num{color:var(--inside)}
+  .kpi .sub{font-size:11.5px;color:var(--muted);margin-top:2px}
+
+  .grid3{display:grid;grid-template-columns:0.85fr 1.15fr 1fr;gap:14px;margin:14px 0}
+  .grid2{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin:14px 0}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
+    font-weight:700;margin-bottom:12px}
+  .chartbox{position:relative;height:220px}
+  .chartbox.sm{height:170px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
+    font-weight:600;padding:8px 10px;border-bottom:2px solid var(--line)}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted)}
+  .name{font-weight:600}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:.3px}
+  .badge.in{background:#fdeef0;color:var(--inside)}
+  .badge.out{background:#eef5f0;color:var(--ok)}
+  .empty{padding:40px;text-align:center;color:var(--muted);font-size:14px}
+  .note{font-size:11px;color:var(--muted);margin-top:8px;font-style:italic}
+
+  footer{font-size:11.5px;color:var(--muted);text-align:center;margin-top:26px}
+  @media(max-width:980px){.kpis{grid-template-columns:repeat(2,1fr)}.grid3,.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="mark">H</div>
+      <div>
+        <h1>Visitor Entry Live Board</h1>
+        <p>Hornbill Skyways · AVSEC · Kuching International Airport</p>
+      </div>
+    </div>
+    <div class="live"><span class="dot pulse" id="dot"></span><span id="status">Memuatkan…</span></div>
+  </header>
+
+  <section class="kpis">
+    <div class="kpi">
+      <div class="label">Bulan Ini</div>
+      <div class="num" id="kMonth">—</div>
+      <div class="sub" id="monthName"></div>
+    </div>
+    <div class="kpi">
+      <div class="label">Masuk Hari Ini</div>
+      <div class="num" id="kToday">—</div>
+      <div class="sub" id="todayDate"></div>
+    </div>
+    <div class="kpi alert">
+      <div class="label">Masih Di Dalam</div>
+      <div class="num" id="kInside">—</div>
+      <div class="sub">Pass belum dipulangkan</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Anggaran Waktu Lawatan</div>
+      <div class="num" id="kAvg">—</div>
+      <div class="sub">Purata (yang dah pulang)</div>
+    </div>
+  </section>
+
+  <section class="grid3">
+    <div class="panel">
+      <h2>Jenis Pelawat</h2>
+      <div class="chartbox"><canvas id="chartType"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>Top Syarikat / Agensi</h2>
+      <div class="chartbox"><canvas id="chartCompany"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>Hari Ini ikut Lokasi</h2>
+      <div class="chartbox"><canvas id="chartLoc"></canvas></div>
+    </div>
+  </section>
+
+  <section style="margin:14px 0">
+    <div class="panel">
+      <h2>Trend Kemasukan (dari awal rekod)</h2>
+      <div class="chartbox"><canvas id="chartTrend"></canvas></div>
+    </div>
+  </section>
+
+  <div class="panel">
+    <h2>Entri Terkini</h2>
+    <div id="tableWrap" style="overflow-x:auto"><div class="empty">Memuatkan rekod…</div></div>
+    <div class="note">Papan operasi dalaman — No. Dokumen & ID tidak dipaparkan.</div>
+  </div>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const REFRESH_MS = 45000;
+const charts = {};
+
+const esc = s => String(s ?? "").replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+const PALETTE = ["#C8102E","#B8902E","#3a352e","#d8b45a","#8a8276","#e0a0a8","#b0a89a"];
+
+function parseDate(v){
+  if(!v) return null;
+  const d = new Date(v);
+  return isNaN(d) ? null : d;
+}
+function fmtTime(v){
+  const d = parseDate(v);
+  if(!d) return "—";
+  return d.toLocaleString("en-MY",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:false});
+}
+function isToday(v){
+  const d = parseDate(v), n = new Date();
+  return d && d.getFullYear()===n.getFullYear() && d.getMonth()===n.getMonth() && d.getDate()===n.getDate();
+}
+function isThisMonth(v){
+  const d = parseDate(v), n = new Date();
+  return d && d.getFullYear()===n.getFullYear() && d.getMonth()===n.getMonth();
+}
+function fmtDur(ms){
+  if(!ms || ms<=0) return "—";
+  const min = Math.round(ms/60000);
+  const h = Math.floor(min/60), m = min%60;
+  return h>0 ? `${h}j ${m}min` : `${m}min`;
+}
+// "Date of Entry" boleh datang sebagai serial Excel (46186), string tarikh, atau kosong.
+function fmtEntryDate(v, fallbackISO){
+  if(typeof v === "number" && v > 1){               // serial Excel
+    const d = new Date(Math.round((v - 25569) * 86400000));
+    return d.toLocaleDateString("en-MY",{day:"2-digit",month:"short",year:"2-digit"});
+  }
+  const d = parseDate(v) || parseDate(fallbackISO);
+  return d ? d.toLocaleDateString("en-MY",{day:"2-digit",month:"short",year:"2-digit"}) : "—";
+}
+// "Time Received" boleh datang sebagai pecahan hari (0.749), string masa ("2:39 PM"), atau kosong.
+function fmtRcvTime(v, fallbackISO){
+  if(typeof v === "number" && v >= 0 && v < 1){      // pecahan hari
+    const mins = Math.round(v * 24 * 60);
+    const hh = String(Math.floor(mins/60)).padStart(2,"0");
+    const mm = String(mins%60).padStart(2,"0");
+    return `${hh}:${mm}`;
+  }
+  if(typeof v === "string" && v.trim()) return v.trim();
+  const d = parseDate(fallbackISO);
+  return d ? d.toLocaleTimeString("en-MY",{hour:"2-digit",minute:"2-digit",hour12:false}) : "—";
+}
+function groupCount(records, key){
+  const m = {};
+  records.forEach(r => { const k=(r[key]||"—").toString().trim()||"—"; m[k]=(m[k]||0)+1; });
+  return m;
+}
+function topN(records, key, n=7){
+  return Object.entries(groupCount(records,key)).sort((a,b)=>b[1]-a[1]).slice(0,n);
+}
+
+function barH(id, data, color){
+  const ctx = document.getElementById(id);
+  if(charts[id]) charts[id].destroy();
+  charts[id] = new Chart(ctx,{type:"bar",
+    data:{labels:data.map(d=>d[0]),datasets:[{data:data.map(d=>d[1]),backgroundColor:color,borderRadius:5,barThickness:16}]},
+    options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{x:{grid:{color:"#f0ece3"},ticks:{precision:0,color:"#6b665f"}},
+              y:{grid:{display:false},ticks:{color:"#1a1816",font:{size:11}}}}}});
+}
+function barV(id, labels, values, color){
+  const ctx = document.getElementById(id);
+  if(charts[id]) charts[id].destroy();
+  charts[id] = new Chart(ctx,{type:"bar",
+    data:{labels,datasets:[{data:values,backgroundColor:color,borderRadius:5,maxBarThickness:46}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{x:{grid:{display:false},ticks:{color:"#1a1816",font:{size:11}}},
+              y:{grid:{color:"#f0ece3"},ticks:{precision:0,color:"#6b665f"}}}}});
+}
+function donut(id, data){
+  const ctx = document.getElementById(id);
+  if(charts[id]) charts[id].destroy();
+  charts[id] = new Chart(ctx,{type:"doughnut",
+    data:{labels:data.map(d=>d[0]),datasets:[{data:data.map(d=>d[1]),backgroundColor:PALETTE,borderWidth:2,borderColor:"#fff"}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:"62%",
+      plugins:{legend:{position:"right",labels:{boxWidth:12,font:{size:11},color:"#3a352e"}}}}});
+}
+function line(id, labels, values){
+  const ctx = document.getElementById(id);
+  if(charts[id]) charts[id].destroy();
+  charts[id] = new Chart(ctx,{type:"line",
+    data:{labels,datasets:[{data:values,borderColor:"#C8102E",backgroundColor:"rgba(200,16,46,.08)",
+      fill:true,tension:.35,borderWidth:2,pointRadius:2,pointBackgroundColor:"#C8102E"}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{x:{grid:{display:false},ticks:{color:"#6b665f",font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:12}},
+              y:{grid:{color:"#f0ece3"},ticks:{precision:0,color:"#6b665f"}}}}});
+}
+
+function trendSeries(records){
+  const dates = records.map(r=>parseDate(r["Submitted At"])).filter(Boolean);
+  if(!dates.length) return {labels:[], counts:[]};
+  let start = new Date(Math.min(...dates)); start.setHours(0,0,0,0);
+  const end = new Date(); end.setHours(0,0,0,0);
+  const bucket = {};
+  records.forEach(r=>{
+    const d = parseDate(r["Submitted At"]); if(!d) return;
+    const key = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    bucket[key] = (bucket[key]||0)+1;
+  });
+  const labels = [], counts = [];
+  for(let day=new Date(start); day<=end; day.setDate(day.getDate()+1)){
+    const key = day.getFullYear()+"-"+String(day.getMonth()+1).padStart(2,"0")+"-"+String(day.getDate()).padStart(2,"0");
+    labels.push(day.toLocaleDateString("en-MY",{day:"2-digit",month:"short"}));
+    counts.push(bucket[key]||0);
+  }
+  return {labels, counts};
+}
+
+function avgDuration(records){
+  const durs = [];
+  records.forEach(r=>{
+    if(r.Status!=="Returned") return;
+    const start = parseDate(r["Submitted At"]);
+    const end = parseDate(r["Completed At"]) || parseDate(r["Time Returned"]);
+    if(start && end && end>start) durs.push(end-start);
+  });
+  if(!durs.length) return 0;
+  return durs.reduce((a,b)=>a+b,0)/durs.length;
+}
+
+function renderTable(records){
+  const rows = records.slice().reverse().slice(0,12);
+  if(!rows.length){ document.getElementById("tableWrap").innerHTML='<div class="empty">Takde rekod lagi.</div>'; return; }
+  let html = `<table><thead><tr>
+    <th>Visitor Name</th><th>Company</th><th>Retained By</th><th>Pass No</th>
+    <th>Date of Entry</th><th>Time Received</th><th>Purpose</th><th>Location</th>
+    </tr></thead><tbody>`;
+  rows.forEach(r=>{
+    const inside = r.Status !== "Returned";
+    html += `<tr>
+      <td class="name">${esc(r["Visitor Name"]||"—")}</td>
+      <td>${esc(r["Company"]||"—")}</td>
+      <td>${esc(r["Retained By (AVSEC)"]||"—")}</td>
+      <td class="mono">${esc(r["PassNoIssued"]||r["Daily Pass No"]||"—")}</td>
+      <td class="mono">${fmtEntryDate(r["Date of Entry"], r["Submitted At"])}</td>
+      <td class="mono">${fmtRcvTime(r["Time Received"], r["Submitted At"])}</td>
+      <td>${esc(r["Purpose of Visit"]||"—")}</td>
+      <td>${esc(r["Location"]||"—")} ${inside?'<span class="badge in">IN</span>':''}</td>
+    </tr>`;
+  });
+  document.getElementById("tableWrap").innerHTML = html + "</tbody></table>";
+}
+
+async function load(){
+  const dot = document.getElementById("dot"), status = document.getElementById("status");
+  try{
+    const res = await fetch("data.json?t=" + Date.now());
+    if(!res.ok) throw new Error(res.status);
+    const d = await res.json();
+    const recs = d.records || [];
+    const todayRecs = recs.filter(r=>isToday(r["Submitted At"]));
+
+    document.getElementById("kMonth").textContent  = recs.filter(r=>isThisMonth(r["Submitted At"])).length;
+    document.getElementById("kToday").textContent  = todayRecs.length;
+    document.getElementById("kInside").textContent = recs.filter(r=>r.Status!=="Returned").length;
+    document.getElementById("kAvg").textContent    = fmtDur(avgDuration(recs));
+    document.getElementById("monthName").textContent =
+      new Date().toLocaleDateString("en-MY",{month:"long",year:"numeric"});
+    document.getElementById("todayDate").textContent =
+      new Date().toLocaleDateString("en-MY",{weekday:"long",day:"numeric",month:"long"});
+
+    donut("chartType", Object.entries(groupCount(recs,"VisitorType")).sort((a,b)=>b[1]-a[1]));
+    barH("chartCompany", topN(recs,"Company"), "#B8902E");
+
+    const loc = groupCount(todayRecs,"Location");
+    const locE = Object.entries(loc).sort((a,b)=>b[1]-a[1]);
+    barV("chartLoc", locE.map(e=>e[0]), locE.map(e=>e[1]), "#3a352e");
+
+    const t = trendSeries(recs);
+    line("chartTrend", t.labels, t.counts);
+
+    renderTable(recs);
+
+    dot.style.background = "var(--ok)";
+    status.textContent = "Live · dikemaskini " + fmtTime(d.generated_at);
+    document.getElementById("foot").textContent =
+      "Data dari SharePoint via Power Automate · auto-refresh setiap " + (REFRESH_MS/1000) + " saat";
+  }catch(e){
+    dot.style.background = "var(--red)";
+    status.textContent = "Gagal muat data — cuba lagi…";
+  }
+}
+
+load();
+setInterval(load, REFRESH_MS);
+</script>
+</body>
+</html>
