@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HSSB AVSEC — Visitor Entry Live Board</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <style>
   :root{
     --red:#C8102E; --gold:#B8902E; --ink:#1a1816; --muted:#6b665f;
@@ -56,6 +57,11 @@
   .badge.out{background:#eef5f0;color:var(--ok)}
   .badge.na{background:#f0ece3;color:var(--muted)}
   .empty{padding:40px;text-align:center;color:var(--muted);font-size:14px}
+  .loc-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+    margin:18px 0 8px;padding-bottom:6px;border-bottom:2px solid var(--gold);
+    font-size:14px;font-weight:700;color:var(--ink);letter-spacing:.2px}
+  .loc-head:first-child{margin-top:0}
+  .loc-count{font-size:11.5px;font-weight:600;color:var(--muted);text-transform:none;letter-spacing:0}
   .note{font-size:11px;color:var(--muted);margin-top:8px;font-style:italic}
 
   footer{font-size:11.5px;color:var(--muted);text-align:center;margin-top:26px}
@@ -209,7 +215,7 @@ function barH(id, data, color){
   charts[id] = new Chart(ctx,{type:"bar",
     data:{labels:data.map(d=>d[0]),datasets:[{data:data.map(d=>d[1]),backgroundColor:color,borderRadius:5,barThickness:16}]},
     options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false}},
+      plugins:{legend:{display:false},datalabels:{display:false}},
       scales:{x:{grid:{color:"#f0ece3"},ticks:{precision:0,color:"#6b665f"}},
               y:{grid:{display:false},ticks:{color:"#1a1816",font:{size:11}}}}}});
 }
@@ -219,17 +225,32 @@ function barV(id, labels, values, color){
   charts[id] = new Chart(ctx,{type:"bar",
     data:{labels,datasets:[{data:values,backgroundColor:color,borderRadius:5,maxBarThickness:46}]},
     options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false}},
+      plugins:{legend:{display:false},datalabels:{display:false}},
       scales:{x:{grid:{display:false},ticks:{color:"#1a1816",font:{size:11}}},
               y:{grid:{color:"#f0ece3"},ticks:{precision:0,color:"#6b665f"}}}}});
 }
 function donut(id, data){
   const ctx = document.getElementById(id);
   if(charts[id]) charts[id].destroy();
+  const total = data.reduce((a,d)=>a+d[1],0) || 1;
   charts[id] = new Chart(ctx,{type:"doughnut",
     data:{labels:data.map(d=>d[0]),datasets:[{data:data.map(d=>d[1]),backgroundColor:PALETTE,borderWidth:2,borderColor:"#fff"}]},
-    options:{responsive:true,maintainAspectRatio:false,cutout:"62%",
-      plugins:{legend:{position:"right",labels:{boxWidth:12,font:{size:11},color:"#3a352e"}}}}});
+    options:{responsive:true,maintainAspectRatio:false,cutout:"60%",
+      plugins:{
+        legend:{position:"right",labels:{boxWidth:12,font:{size:11},color:"#3a352e",
+          generateLabels:(chart)=>{
+            const ds = chart.data.datasets[0];
+            return chart.data.labels.map((lbl,i)=>{
+              const v = ds.data[i], pct = Math.round(v/total*100);
+              return {text:`${lbl} — ${v} (${pct}%)`, fillStyle:PALETTE[i%PALETTE.length],
+                strokeStyle:"#fff", lineWidth:1, index:i};
+            });
+          }}},
+        tooltip:{callbacks:{label:(c)=>`${c.label}: ${c.raw} (${Math.round(c.raw/total*100)}%)`}},
+        datalabels:{color:"#fff",font:{weight:"bold",size:13},
+          formatter:(v)=>{ const p=Math.round(v/total*100); return p>=6 ? p+"%" : ""; }}
+      }},
+    plugins:[ChartDataLabels]});
 }
 function line(id, labels, values){
   const ctx = document.getElementById(id);
@@ -238,7 +259,7 @@ function line(id, labels, values){
     data:{labels,datasets:[{data:values,borderColor:"#C8102E",backgroundColor:"rgba(200,16,46,.08)",
       fill:true,tension:.35,borderWidth:2,pointRadius:2,pointBackgroundColor:"#C8102E"}]},
     options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false}},
+      plugins:{legend:{display:false},datalabels:{display:false}},
       scales:{x:{grid:{display:false},ticks:{color:"#6b665f",font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:12}},
               y:{grid:{color:"#f0ece3"},ticks:{precision:0,color:"#6b665f"}}}}});
 }
@@ -281,30 +302,33 @@ function dateKey(v){
   return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 }
 
-function renderTable(records){
-  // "Tarikh aktif" = tarikh entri PALING TERKINI dalam data. Jadi entri hari ini kekal
-  // sampai ada entri hari esok masuk — bila tu berlaku, hari lama auto-tertinggal.
-  const keys = records.map(r=>dateKey(r["Submitted At"])).filter(Boolean).sort();
-  const activeKey = keys.length ? keys[keys.length-1] : "";
-  let rows = records.filter(r=>dateKey(r["Submitted At"])===activeKey);
+function locBucket(loc){
+  const s = String(loc||"").toLowerCase();
+  if(s.includes("kuching")) return "Hangar Kuching";
+  if(s.includes("miri") || s.includes("myy")) return "Hangar MYY";
+  if(s.includes("has")) return "Hangar HAS";
+  return (loc && loc.trim()) ? loc.trim() : "Lain-lain";
+}
+
+function buildTable(rows){
   // Susun: IN PREMISES di atas, RETURNED di bawah; dalam kumpulan, terkini dahulu.
   rows.sort((a,b)=>{
     const ai = isInside(a)?0:1, bi = isInside(b)?0:1;
     if(ai!==bi) return ai-bi;
     return (parseDate(b["Submitted At"])||0) - (parseDate(a["Submitted At"])||0);
   });
-  if(!rows.length){ document.getElementById("tableWrap").innerHTML='<div class="empty">Takde entri untuk hari ini lagi.</div>'; return; }
   let html = `<table><thead><tr>
-    <th>Visitor Name</th><th>Company</th><th>Retained By</th><th>Pass No</th>
-    <th>Date of Entry</th><th>Time Received</th><th>Purpose</th><th>Location</th><th>Status</th>
+    <th>No.</th><th>Visitor Name</th><th>Company</th><th>Retained By</th><th>Pass No</th>
+    <th>Date of Entry</th><th>Time Received</th><th>Purpose</th><th>Status</th>
     </tr></thead><tbody>`;
-  rows.forEach(r=>{
+  rows.forEach((r,i)=>{
     const inside = isInside(r);
     const done = isReturned(r);
     const badge = inside ? '<span class="badge in">IN PREMISES</span>'
                 : done   ? '<span class="badge out">RETURNED</span>'
                 :          '<span class="badge na">—</span>';
     html += `<tr>
+      <td class="mono">${i+1}</td>
       <td class="name">${esc(r["Visitor Name"]||"—")}</td>
       <td>${esc(r["Company"]||"—")}</td>
       <td>${esc(r["Retained By (AVSEC)"]||"—")}</td>
@@ -312,11 +336,37 @@ function renderTable(records){
       <td class="mono">${fmtEntryDate(r["Date of Entry"], r["Submitted At"])}</td>
       <td class="mono">${fmtRcvTime(r["Time Received"], r["Submitted At"])}</td>
       <td>${esc(r["Purpose of Visit"]||"—")}</td>
-      <td>${esc(r["Location"]||"—")}</td>
       <td>${badge}</td>
     </tr>`;
   });
-  document.getElementById("tableWrap").innerHTML = html + "</tbody></table>";
+  return html + "</tbody></table>";
+}
+
+function renderTable(records){
+  // "Tarikh aktif" = tarikh entri PALING TERKINI. Entri hari ini kekal sampai ada entri esok masuk.
+  const keys = records.map(r=>dateKey(r["Submitted At"])).filter(Boolean).sort();
+  const activeKey = keys.length ? keys[keys.length-1] : "";
+  const today = records.filter(r=>dateKey(r["Submitted At"])===activeKey);
+  if(!today.length){ document.getElementById("tableWrap").innerHTML='<div class="empty">Takde entri untuk hari ini lagi.</div>'; return; }
+
+  // Kumpul ikut lokasi
+  const groups = {};
+  today.forEach(r=>{ const b=locBucket(r["Location"]); (groups[b]=groups[b]||[]).push(r); });
+
+  // Susunan tetap dulu, lepas tu mana-mana lokasi lain
+  const order = ["Hangar Kuching","Hangar MYY","Hangar HAS"];
+  const extras = Object.keys(groups).filter(k=>!order.includes(k)).sort();
+  const finalOrder = [...order, ...extras].filter(k=>groups[k] && groups[k].length);
+
+  let html = "";
+  finalOrder.forEach(loc=>{
+    const rows = groups[loc];
+    const inCount = rows.filter(isInside).length;
+    html += `<div class="loc-head">${esc(loc)}
+      <span class="loc-count">${rows.length} entri · ${inCount} masih dalam</span></div>`;
+    html += `<div style="overflow-x:auto">${buildTable(rows)}</div>`;
+  });
+  document.getElementById("tableWrap").innerHTML = html;
 }
 
 async function load(){
