@@ -160,24 +160,28 @@ function fmtDur(ms){
   const h = Math.floor(min/60), m = min%60;
   return h>0 ? `${h}j ${m}min` : `${m}min`;
 }
-// "Date of Entry" boleh datang sebagai serial Excel (46186), string tarikh, atau kosong.
+// "Date of Entry" boleh datang sebagai serial Excel (46186), TEKS "46186", string tarikh, atau kosong.
 function fmtEntryDate(v, fallbackISO){
-  if(typeof v === "number" && v > 1){               // serial Excel
-    const d = new Date(Math.round((v - 25569) * 86400000));
-    return d.toLocaleDateString("en-MY",{day:"2-digit",month:"short",year:"2-digit"});
+  const n = (typeof v === "number") ? v
+          : (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))) ? Number(v) : null;
+  if(n !== null && n > 1){                            // serial Excel
+    const d = new Date(Math.round((n - 25569) * 86400000));
+    if(!isNaN(d)) return d.toLocaleDateString("en-MY",{day:"2-digit",month:"short",year:"2-digit"});
   }
   const d = parseDate(v) || parseDate(fallbackISO);
   return d ? d.toLocaleDateString("en-MY",{day:"2-digit",month:"short",year:"2-digit"}) : "—";
 }
-// "Time Received" boleh datang sebagai pecahan hari (0.749), string masa ("2:39 PM"), atau kosong.
+// "Time Received" boleh datang sebagai pecahan hari (0.749), TEKS "0.749", string masa ("2:39 PM"), atau kosong.
 function fmtRcvTime(v, fallbackISO){
-  if(typeof v === "number" && v >= 0 && v < 1){      // pecahan hari
-    const mins = Math.round(v * 24 * 60);
+  const n = (typeof v === "number") ? v
+          : (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))) ? Number(v) : null;
+  if(n !== null && n >= 0 && n < 1){                  // pecahan hari
+    const mins = Math.round(n * 24 * 60);
     const hh = String(Math.floor(mins/60)).padStart(2,"0");
     const mm = String(mins%60).padStart(2,"0");
     return `${hh}:${mm}`;
   }
-  if(typeof v === "string" && v.trim()) return v.trim();
+  if(typeof v === "string" && v.trim()) return v.trim();   // string masa "2:39 PM"
   const d = parseDate(fallbackISO);
   return d ? d.toLocaleTimeString("en-MY",{hour:"2-digit",minute:"2-digit",hour12:false}) : "—";
 }
@@ -188,6 +192,15 @@ function groupCount(records, key){
 }
 function topN(records, key, n=7){
   return Object.entries(groupCount(records,key)).sort((a,b)=>b[1]-a[1]).slice(0,n);
+}
+// Status dalam Excel kadang ada ruang/huruf besar berbeza ("Returned ") — normalise.
+function isReturned(r){
+  return String(r && r.Status || "").trim().toLowerCase().startsWith("return");
+}
+// "Masih Di Dalam" = Status "In Premises". Ni flag rasmi dari sistem VEF, jadi
+// rekod lama yang status kosong tak terkira. Padan dengan Power BI.
+function isInside(r){
+  return String(r && r.Status || "").trim().toLowerCase().includes("premise");
 }
 
 function barH(id, data, color){
@@ -253,7 +266,7 @@ function trendSeries(records){
 function avgDuration(records){
   const durs = [];
   records.forEach(r=>{
-    if(r.Status!=="Returned") return;
+    if(!isReturned(r)) return;
     const start = parseDate(r["Submitted At"]);
     const end = parseDate(r["Completed At"]) || parseDate(r["Time Returned"]);
     if(start && end && end>start) durs.push(end-start);
@@ -270,7 +283,7 @@ function renderTable(records){
     <th>Date of Entry</th><th>Time Received</th><th>Purpose</th><th>Location</th>
     </tr></thead><tbody>`;
   rows.forEach(r=>{
-    const inside = r.Status !== "Returned";
+    const inside = isInside(r);
     html += `<tr>
       <td class="name">${esc(r["Visitor Name"]||"—")}</td>
       <td>${esc(r["Company"]||"—")}</td>
@@ -296,7 +309,7 @@ async function load(){
 
     document.getElementById("kMonth").textContent  = recs.filter(r=>isThisMonth(r["Submitted At"])).length;
     document.getElementById("kToday").textContent  = todayRecs.length;
-    document.getElementById("kInside").textContent = recs.filter(r=>r.Status!=="Returned").length;
+    document.getElementById("kInside").textContent = recs.filter(isInside).length;
     document.getElementById("kAvg").textContent    = fmtDur(avgDuration(recs));
     document.getElementById("monthName").textContent =
       new Date().toLocaleDateString("en-MY",{month:"long",year:"numeric"});
