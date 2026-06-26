@@ -1,8 +1,5 @@
 [build]
   publish = "."
-
-[[redirects]]
-  from = "/data.json"
-  to = "/.netlify/functions/data"
-  status = 200
-  force = true
+  # Skip rebuild kalau commit cuma ubah data.json (GitHub Action commit tiap minit).
+  # Netlify cuma rebuild bila index.html / fail lain berubah -> jimat build-minutes.
+  ignore = "git diff --quiet HEAD^ HEAD -- ':(exclude)data.json'"
