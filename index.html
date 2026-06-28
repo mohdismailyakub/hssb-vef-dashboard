@@ -38,6 +38,15 @@
   .kpi .sub{font-size:11.5px;color:var(--muted);margin-top:2px}
 
   .grid3{display:grid;grid-template-columns:0.85fr 1.15fr 1fr;gap:14px;margin:14px 0}
+  .grid2{display:grid;grid-template-columns:0.62fr 1.38fr;gap:14px;margin:14px 0}
+  .freq .extra{display:none}
+  .freq.expanded .extra{display:table-row}
+  .morebtn{margin-top:12px;background:var(--card);border:1px solid var(--line);color:var(--ink);
+    font-size:12px;font-weight:600;padding:8px 18px;border-radius:8px;cursor:pointer;letter-spacing:.3px;
+    transition:all .15s}
+  .morebtn:hover{border-color:var(--gold);color:var(--gold)}
+  .rank{font-weight:800;color:var(--gold);font-variant-numeric:tabular-nums}
+  .totrow td{border-top:2px solid var(--line);font-weight:700}
   .grid2{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin:14px 0}
   .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
   .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
@@ -123,6 +132,18 @@
     <div class="panel">
       <h2>Trend Kemasukan (dari awal rekod)</h2>
       <div class="chartbox"><canvas id="chartTrend"></canvas></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>Ringkasan Pelawat ikut Bulan</h2>
+      <div id="monthWrap" style="overflow-x:auto"><div class="empty">Memuatkan…</div></div>
+    </div>
+    <div class="panel">
+      <h2>Pelawat Paling Kerap</h2>
+      <div id="freqWrap" style="overflow-x:auto"><div class="empty">Memuatkan…</div></div>
+      <button id="freqBtn" class="morebtn" style="display:none" onclick="toggleFreq()">Lihat semua ▼</button>
     </div>
   </section>
 
@@ -369,6 +390,85 @@ function renderTable(records){
   document.getElementById("tableWrap").innerHTML = html;
 }
 
+// ===== Ringkasan ikut bulan =====
+function monthSummary(records){
+  const map = {};
+  records.forEach(r=>{
+    const d = parseDate(r["Submitted At"]); if(!d) return;
+    const key = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    if(!map[key]) map[key] = {count:0, label:d.toLocaleDateString("en-MY",{month:"long",year:"numeric"}), sort:key};
+    map[key].count++;
+  });
+  return Object.values(map).sort((a,b)=> b.sort.localeCompare(a.sort)); // terbaru di atas
+}
+function renderMonthSummary(records){
+  const rows = monthSummary(records);
+  const wrap = document.getElementById("monthWrap");
+  if(!rows.length){ wrap.innerHTML='<div class="empty">Takde data.</div>'; return; }
+  const total = rows.reduce((s,r)=>s+r.count,0);
+  let html = `<table><thead><tr><th>Bulan</th><th style="text-align:right">Jumlah</th></tr></thead><tbody>`;
+  rows.forEach(r=>{
+    html += `<tr><td>${esc(r.label)}</td><td class="mono" style="text-align:right"><strong>${r.count}</strong></td></tr>`;
+  });
+  html += `<tr class="totrow"><td>Jumlah Keseluruhan</td><td class="mono" style="text-align:right">${total}</td></tr>`;
+  wrap.innerHTML = html + "</tbody></table>";
+}
+
+// ===== Pelawat paling kerap =====
+let freqExpanded = false;
+function mostCommon(arr){
+  const c = {}; let best="—", bestN=0;
+  arr.forEach(v=>{ v=String(v||"").trim(); if(!v) return; c[v]=(c[v]||0)+1; if(c[v]>bestN){bestN=c[v];best=v;} });
+  return best;
+}
+function topVisitors(records){
+  const map = {};
+  records.forEach(r=>{
+    const name = String(r["Visitor Name"]||"").trim(); if(!name) return;
+    (map[name] = map[name] || []).push(r);
+  });
+  return Object.entries(map).map(([name,rs])=>({
+    name,
+    company: mostCommon(rs.map(x=>x["Company"])),
+    purpose: mostCommon(rs.map(x=>x["Purpose of Visit"])),
+    count: rs.length
+  })).sort((a,b)=> b.count-a.count || a.name.localeCompare(b.name));
+}
+function renderTopVisitors(records){
+  const list = topVisitors(records);
+  const wrap = document.getElementById("freqWrap");
+  const btn  = document.getElementById("freqBtn");
+  if(!list.length){ wrap.innerHTML='<div class="empty">Takde data pelawat.</div>'; btn.style.display="none"; return; }
+  let html = `<table class="freq${freqExpanded?' expanded':''}"><thead><tr>
+    <th>No.</th><th>Visitor Name</th><th>Company</th><th>Purpose (paling kerap)</th><th style="text-align:right">Kekerapan</th>
+    </tr></thead><tbody>`;
+  list.forEach((v,i)=>{
+    const extra = i>=5 ? ' class="extra"' : '';
+    html += `<tr${extra}>
+      <td class="rank">${i+1}</td>
+      <td class="name">${esc(v.name)}</td>
+      <td>${esc(v.company)}</td>
+      <td>${esc(v.purpose)}</td>
+      <td class="mono" style="text-align:right"><strong>${v.count}</strong></td>
+    </tr>`;
+  });
+  wrap.innerHTML = html + "</tbody></table>";
+  if(list.length > 5){
+    btn.style.display = "inline-block";
+    btn.textContent = freqExpanded ? "Tutup ▲" : ("Lihat semua "+list.length+" pelawat ▼");
+  } else { btn.style.display = "none"; }
+}
+function toggleFreq(){
+  freqExpanded = !freqExpanded;
+  const tbl = document.querySelector("#freqWrap table.freq");
+  const btn = document.getElementById("freqBtn");
+  if(tbl){
+    tbl.classList.toggle("expanded", freqExpanded);
+    const total = tbl.querySelectorAll("tbody tr").length;
+    btn.textContent = freqExpanded ? "Tutup ▲" : ("Lihat semua "+total+" pelawat ▼");
+  }
+}
+
 async function load(){
   const dot = document.getElementById("dot"), status = document.getElementById("status");
   try{
@@ -398,6 +498,8 @@ async function load(){
     line("chartTrend", t.labels, t.counts);
 
     renderTable(recs);
+    renderMonthSummary(recs);
+    renderTopVisitors(recs);
 
     dot.style.background = "var(--ok)";
     status.textContent = "Live · dikemaskini " + fmtTime(d.generated_at);
