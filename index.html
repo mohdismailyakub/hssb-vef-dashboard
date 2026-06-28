@@ -28,7 +28,7 @@
   .dot.pulse{animation:p 1.6s infinite}
   @keyframes p{0%{box-shadow:0 0 0 0 rgba(47,125,84,.5)}70%{box-shadow:0 0 0 7px rgba(47,125,84,0)}100%{box-shadow:0 0 0 0 rgba(47,125,84,0)}}
 
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:14px}
   .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;
     border-left:4px solid var(--gold)}
   .kpi.alert{border-left-color:var(--inside)}
@@ -45,6 +45,13 @@
     font-size:12px;font-weight:600;padding:8px 18px;border-radius:8px;cursor:pointer;letter-spacing:.3px;
     transition:all .15s}
   .morebtn:hover{border-color:var(--gold);color:var(--gold)}
+  .monthbtns{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+  .mbtn{background:var(--bg);border:1px solid var(--line);color:var(--muted);font-size:11px;font-weight:600;
+    padding:6px 13px;border-radius:20px;cursor:pointer;letter-spacing:.3px;transition:all .15s}
+  .mbtn:hover{border-color:var(--gold);color:var(--ink)}
+  .mbtn.active{background:var(--gold);border-color:var(--gold);color:#fff}
+  .fltlbl{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;align-self:center;text-transform:uppercase}
+  .mbtn.loc.active{background:#C8102E;border-color:#C8102E;color:#fff}
   .rank{font-weight:800;color:var(--gold);font-variant-numeric:tabular-nums}
   .totrow td{border-top:2px solid var(--line);font-weight:700}
   .grid2{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin:14px 0}
@@ -111,12 +118,18 @@
       <div class="num" id="kAvg">—</div>
       <div class="sub">Purata (yang dah pulang)</div>
     </div>
+    <div class="kpi">
+      <div class="label">Orang Berbeza</div>
+      <div class="num" id="kDistinct">—</div>
+      <div class="sub">Individu unik bulan ini</div>
+    </div>
   </section>
 
   <section class="grid3">
     <div class="panel">
-      <h2>Jenis Pelawat</h2>
+      <h2>Jenis Pelawat <span style="font-weight:400;font-size:12px;color:#8a857c">(orang unik)</span></h2>
       <div class="chartbox"><canvas id="chartType"></canvas></div>
+      <div id="typeMonths" class="monthbtns"></div>
     </div>
     <div class="panel">
       <h2>Top Syarikat / Agensi</h2>
@@ -137,12 +150,14 @@
 
   <section class="grid2">
     <div class="panel">
-      <h2>Ringkasan Pelawat ikut Bulan</h2>
-      <div id="monthWrap" style="overflow-x:auto"><div class="empty">Memuatkan…</div></div>
+      <h2>Lawatan ikut Bulan</h2>
+      <div class="chartbox"><canvas id="chartMonth"></canvas></div>
     </div>
     <div class="panel">
       <h2>Pelawat Paling Kerap</h2>
       <div id="freqWrap" style="overflow-x:auto"><div class="empty">Memuatkan…</div></div>
+      <div id="freqLocs" class="monthbtns"></div>
+      <div id="freqMonths" class="monthbtns"></div>
       <button id="freqBtn" class="morebtn" style="display:none" onclick="toggleFreq()">Lihat semua ▼</button>
     </div>
   </section>
@@ -250,12 +265,13 @@ function barV(id, labels, values, color){
       scales:{x:{grid:{display:false},ticks:{color:"#1a1816",font:{size:11}}},
               y:{grid:{color:"#f0ece3"},ticks:{precision:0,color:"#6b665f"}}}}});
 }
-function donut(id, data){
+function donut(id, data, colors){
   const ctx = document.getElementById(id);
   if(charts[id]) charts[id].destroy();
+  const cols = colors || PALETTE;
   const total = data.reduce((a,d)=>a+d[1],0) || 1;
   charts[id] = new Chart(ctx,{type:"doughnut",
-    data:{labels:data.map(d=>d[0]),datasets:[{data:data.map(d=>d[1]),backgroundColor:PALETTE,borderWidth:2,borderColor:"#fff"}]},
+    data:{labels:data.map(d=>d[0]),datasets:[{data:data.map(d=>d[1]),backgroundColor:cols,borderWidth:2,borderColor:"#fff"}]},
     options:{responsive:true,maintainAspectRatio:false,cutout:"60%",
       plugins:{
         legend:{position:"right",labels:{boxWidth:12,font:{size:11},color:"#3a352e",
@@ -263,7 +279,7 @@ function donut(id, data){
             const ds = chart.data.datasets[0];
             return chart.data.labels.map((lbl,i)=>{
               const v = ds.data[i], pct = Math.round(v/total*100);
-              return {text:`${lbl} — ${v} (${pct}%)`, fillStyle:PALETTE[i%PALETTE.length],
+              return {text:`${lbl} — ${v} (${pct}%)`, fillStyle:cols[i%cols.length],
                 strokeStyle:"#fff", lineWidth:1, index:i};
             });
           }}},
@@ -372,7 +388,7 @@ function renderTable(records){
 
   // Kumpul ikut lokasi
   const groups = {};
-  today.forEach(r=>{ const b=locBucket(r["Location"]); (groups[b]=groups[b]||[]).push(r); });
+  today.forEach(r=>{ const b=effLoc(r); (groups[b]=groups[b]||[]).push(r); });
 
   // Susunan tetap dulu, lepas tu mana-mana lokasi lain
   const order = ["Hangar Kuching","Hangar MYY","Hangar HAS"];
@@ -390,57 +406,350 @@ function renderTable(records){
   document.getElementById("tableWrap").innerHTML = html;
 }
 
-// ===== Ringkasan ikut bulan =====
-function monthSummary(records){
-  const map = {};
-  records.forEach(r=>{
-    const d = parseDate(r["Submitted At"]); if(!d) return;
-    const key = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
-    if(!map[key]) map[key] = {count:0, label:d.toLocaleDateString("en-MY",{month:"long",year:"numeric"}), sort:key};
-    map[key].count++;
-  });
-  return Object.values(map).sort((a,b)=> b.sort.localeCompare(a.sort)); // terbaru di atas
-}
-function renderMonthSummary(records){
-  const rows = monthSummary(records);
-  const wrap = document.getElementById("monthWrap");
-  if(!rows.length){ wrap.innerHTML='<div class="empty">Takde data.</div>'; return; }
-  const total = rows.reduce((s,r)=>s+r.count,0);
-  let html = `<table><thead><tr><th>Bulan</th><th style="text-align:right">Jumlah</th></tr></thead><tbody>`;
-  rows.forEach(r=>{
-    html += `<tr><td>${esc(r.label)}</td><td class="mono" style="text-align:right"><strong>${r.count}</strong></td></tr>`;
-  });
-  html += `<tr class="totrow"><td>Jumlah Keseluruhan</td><td class="mono" style="text-align:right">${total}</td></tr>`;
-  wrap.innerHTML = html + "</tbody></table>";
+// ===== Normalisasi nama (jangkar dedup) =====
+function normName(v){ return String(v||"").trim().toUpperCase().replace(/\s+/g," "); }
+function monthKeyOf(r){ const d=parseDate(r["Submitted At"]); return d ? d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0") : ""; }
+function monthLabelOf(key){ const p=key.split("-"); return new Date(p[0], p[1]-1, 1).toLocaleDateString("en-MY",{month:"short",year:"numeric"}); }
+
+// jarak suntingan (Levenshtein) - untuk kesan typo
+function lev(a,b){
+  const m=a.length, n=b.length; if(!m) return n; if(!n) return m;
+  const dp=new Array(n+1); for(let j=0;j<=n;j++) dp[j]=j;
+  for(let i=1;i<=m;i++){ let prev=dp[0]; dp[0]=i;
+    for(let j=1;j<=n;j++){ const t=dp[j]; dp[j]=Math.min(dp[j]+1, dp[j-1]+1, prev+(a[i-1]===b[j-1]?0:1)); prev=t; }
+  }
+  return dp[n];
 }
 
-// ===== Pelawat paling kerap =====
+// ===== Penyatuan nama kanonik: nama dipotong/typo -> satukan ke nama paling lengkap =====
+let NAMECANON = {};
+function buildNameCanon(records){
+  const counts = {};
+  records.forEach(r=>{ const n=normName(r["Visitor Name"]); if(n) counts[n]=(counts[n]||0)+1; });
+  const names = Object.keys(counts);
+  names.sort((a,b)=> b.split(" ").length - a.split(" ").length || b.length - a.length); // paling lengkap dulu
+  function isVariant(shortT, longT){               // shortT ialah versi pendek/typo bagi longT?
+    if(shortT.length > longT.length) return false;
+    for(let i=0;i<shortT.length-1;i++){ if(shortT[i]!==longT[i]) return false; }
+    const sl = shortT[shortT.length-1], ll = longT[shortT.length-1];
+    if(sl===ll) return true;                        // token terakhir sama (nama dipotong di hujung)
+    return sl.length>=3 && ll.startsWith(sl);       // typo: token akhir prefix (cth AZI -> AZIZ)
+  }
+  const canon = [], map = {};
+  names.forEach(n=>{
+    const nt = n.split(" ");
+    let hit = null;
+    for(const c of canon){ if(isVariant(nt, c.t)){ hit = c.name; break; } }
+    if(hit){ map[n] = hit; } else { canon.push({name:n, t:nt}); map[n] = n; }
+  });
+  // ----- Pass 2: gabung TYPO (first name + last name sama, beza kecil di tengah) -----
+  // Selamat: takkan gabung "MOHD AMIN" vs "MOHD AMIR" sebab token terakhir mesti sama.
+  const canonCount = {};
+  Object.entries(map).forEach(([orig,can])=>{ canonCount[can]=(canonCount[can]||0)+counts[orig]; });
+  const cn = canon.map(c=>c.name);
+  const alias = {};
+  for(let i=0;i<cn.length;i++) for(let j=i+1;j<cn.length;j++){
+    const A=cn[i], B=cn[j]; const ta=A.split(" "), tb=B.split(" ");
+    if(ta.length!==tb.length || ta.length<2) continue;
+    if(ta[0]!==tb[0] || ta[ta.length-1]!==tb[tb.length-1]) continue; // first & last WAJIB sama
+    if(lev(A,B)>2) continue;
+    const wa=canonCount[A]||0, wb=canonCount[B]||0;                  // yang lebih kerap menang
+    let win,lose;
+    if(wa!==wb){ if(wa>wb){win=A;lose=B;}else{win=B;lose=A;} }
+    else if(A.length!==B.length){ if(A.length>B.length){win=A;lose=B;}else{win=B;lose=A;} }
+    else { if(A>B){win=A;lose=B;}else{win=B;lose=A;} }
+    alias[lose]=win;
+  }
+  function resolve(x){ let g=0; while(alias[x] && g++<20) x=alias[x]; return x; }
+  Object.keys(map).forEach(k=>{ map[k]=resolve(map[k]); });
+  return map;
+}
+function canonName(r){ const n = normName(r["Visitor Name"]); return NAMECANON[n] || n; }
+
+// ===== Penyatuan ejaan SYARIKAT: variasi (SDN BHD digugur, tanda baca) -> satu nama rasmi =====
+let COCANON = {};
+function looseCo(v){ return String(v||"").toUpperCase().replace(/[.,]/g," ").replace(/\bSDN\b|\bBHD\b/g," ").replace(/\s+/g," ").trim(); }
+function buildCoCanon(records){
+  const cnt = {};
+  records.forEach(r=>{ const c=String(r["Company"]||"").trim(); if(c) cnt[c.toUpperCase()]=(cnt[c.toUpperCase()]||0)+1; });
+  const groups = {};                                  // kunci longgar -> {ejaan: kiraan}
+  Object.keys(cnt).forEach(cU=>{ const k=looseCo(cU); if(!k) return; (groups[k]=groups[k]||{})[cU]=cnt[cU]; });
+  const map = {};
+  Object.values(groups).forEach(spell=>{
+    const entries = Object.entries(spell);
+    const best = entries.sort((a,b)=> b[0].split(/\s+/).length - a[0].split(/\s+/).length || b[1]-a[1])[0][0];
+    const canon = best.replace(/\./g," ").replace(/\s+/g," ").trim();
+    entries.forEach(([sp])=>{ map[sp] = canon; });
+  });
+  // ----- Pass 2: gabung variasi merentas kumpulan (SELAMAT - elak akronim pendek) -----
+  const canonCount = {};
+  Object.entries(map).forEach(([orig,can])=>{ canonCount[can]=(canonCount[can]||0)+(cnt[orig]||0); });
+  const cans = [...new Set(Object.values(map))];
+  function strip(s){ return s.toUpperCase().replace(/[.,]/g," ").replace(/\b(SDN|BHD|BERHAD|LLC|PLC|ENTERPRISE|BANK)\b/g," ").replace(/\s+/g," ").trim(); }
+  function letters(s){ return strip(s).replace(/[^A-Z0-9]/g,""); }
+  function same(A,B){
+    const sa=strip(A), sb=strip(B); if(!sa||!sb) return false;
+    if(letters(A)===letters(B)) return true;                        // (1) beza ruang/tanda/akhiran sah je
+    const ta=sa.split(" "), tb=sb.split(" ");
+    const short=ta.length<=tb.length?ta:tb, long=ta.length<=tb.length?tb:ta;
+    if(short.length>=1 && short.length<long.length && short.every((t,k)=>t===long[k])) return true; // (2) token-prefix
+    if(ta.length===tb.length){                                      // (3) typo perkataan PANJANG sahaja
+      let diff=0, ok=true, shareBig=false;
+      for(let k=0;k<ta.length;k++){
+        if(ta[k]===tb[k]){ if(ta[k].length>=4) shareBig=true; }
+        else { diff++; if(!(ta[k].length>=6 && tb[k].length>=6 && lev(ta[k],tb[k])<=2)) ok=false; }
+      }
+      if(ok && diff===1 && shareBig) return true;
+    }
+    return false;
+  }
+  const alias = {};
+  for(let i=0;i<cans.length;i++) for(let j=i+1;j<cans.length;j++){
+    const A=cans[i], B=cans[j]; if(!same(A,B)) continue;
+    const na=strip(A).split(" ").length, nb=strip(B).split(" ").length; // paling lengkap menang
+    let win,lose;
+    if(na!==nb){ if(na>nb){win=A;lose=B;}else{win=B;lose=A;} }
+    else if((canonCount[A]||0)!==(canonCount[B]||0)){ if((canonCount[A]||0)>(canonCount[B]||0)){win=A;lose=B;}else{win=B;lose=A;} }
+    else if(A.length!==B.length){ if(A.length>B.length){win=A;lose=B;}else{win=B;lose=A;} }
+    else { if(A>B){win=A;lose=B;}else{win=B;lose=A;} }
+    alias[lose]=win;
+  }
+  function resolve(x){ let g=0; while(alias[x] && g++<20) x=alias[x]; return x; }
+  Object.keys(map).forEach(k=>{ map[k]=resolve(map[k]); });
+  return map;
+}
+function canonCo(r){ const c = String(r["Company"]||"").trim(); if(!c) return "—"; return COCANON[c.toUpperCase()] || c; }
+
+// ===== PERISAI: gabung typo nama HANYA bila company kanonik sama (company = pengesah) =====
+// Forward-looking: tangkap typo first/last name yang rule biasa sengaja elak, tapi selamat
+// sebab syarat "company mesti sama & diketahui" memotong hampir semua salah-gabung.
+// BONUS: kalau borang menarik field IC/passport, ia auto-jadi pengesah identiti -
+//        IC berlainan = orang berlainan = JANGAN gabung (walau nama+company sama).
+function detectIdField(records){
+  const want = ["ic","icno","icnumber","nric","mykad","kadpengenalan","nokp","kpno",
+                "passport","passportno","pasport","identity","identityno","identitycard",
+                "documentno","documentnumber","docno","document","nodokumen","nodok"];
+  for(const r of records){                              // imbas SEMUA rekod (kalau IC ditambah lewat, rekod lama mungkin takde)
+    for(const k of Object.keys(r)){
+      const kk = k.toLowerCase().replace(/[^a-z0-9]/g,"");
+      if(want.includes(kk)) return k;
+    }
+  }
+  return null;
+}
+function applyCompanyNameMerge(records){
+  const personCo = {}, personCnt = {}, personId = {};
+  const idKey = detectIdField(records);                 // null jika borang tak tarik IC
+  records.forEach(r=>{
+    const nm = canonName(r); if(!nm) return;
+    personCnt[nm] = (personCnt[nm]||0) + 1;
+    const co = canonCo(r);
+    if(co && co!=="—"){ (personCo[nm]=personCo[nm]||{})[co]=(personCo[nm][co]||0)+1; }
+    if(idKey){ const idv=String(r[idKey]||"").replace(/[^A-Z0-9]/gi,"").toUpperCase();
+      if(idv){ (personId[nm]=personId[nm]||{})[idv]=(personId[nm][idv]||0)+1; } }
+  });
+  const domOf = (acc,nm) => { const m=acc[nm]; return m ? Object.entries(m).sort((a,b)=>b[1]-a[1])[0][0] : ""; };
+  const domCo = nm => domOf(personCo,nm);
+  const domId = nm => domOf(personId,nm);
+  const names = [...new Set(records.map(r=>canonName(r)).filter(Boolean))];
+  const sig = nm => nm.split(" ").filter(t=>t.length>=3);     // token bermakna
+  const alias = {};
+  for(let i=0;i<names.length;i++) for(let j=i+1;j<names.length;j++){
+    const A=names[i], B=names[j];
+    if(A.split(" ").length<2 || B.split(" ").length<2) continue;  // elak nama satu-token (paling kabur)
+    const ca=domCo(A), cb=domCo(B);
+    if(!ca || ca!==cb) continue;                                 // company WAJIB sama & diketahui
+    const ia=domId(A), ib=domId(B);
+    if(ia && ib && ia!==ib) continue;                            // PENGESAH IC: IC berlainan = orang berlainan
+    const sa=new Set(sig(A)), sb=new Set(sig(B));
+    if(![...sa].some(x=>sb.has(x))) continue;                    // kongsi >=1 token besar
+    if(lev(A,B)>2) continue;                                     // typo kecil sahaja (edit distance <=2)
+    const wa=personCnt[A]||0, wb=personCnt[B]||0;                // pemenang: lebih kerap, tie lebih panjang
+    let win,lose;
+    if(wa!==wb){ if(wa>wb){win=A;lose=B;}else{win=B;lose=A;} }
+    else if(A.length!==B.length){ if(A.length>B.length){win=A;lose=B;}else{win=B;lose=A;} }
+    else { if(A>B){win=A;lose=B;}else{win=B;lose=A;} }
+    alias[lose]=win;
+  }
+  function resolve(x){ let g=0; while(alias[x] && g++<20) x=alias[x]; return x; }
+  Object.keys(NAMECANON).forEach(k=>{ NAMECANON[k]=resolve(NAMECANON[k]); });
+}
+
+// ===== Backfill lokasi: nama sama yang pernah ada lokasi -> isi rekod kosong dia =====
+let LOCMAP = {};
+function buildLocMap(records){
+  const acc = {};                                   // nama -> {lokasi: kiraan}
+  records.forEach(r=>{
+    const b = locBucket(r["Location"]);
+    if(b === "Lain-lain") return;                   // hanya ambil rekod yang ADA lokasi sebenar
+    const nm = canonName(r); if(!nm) return;
+    (acc[nm] = acc[nm] || {})[b] = (acc[nm][b]||0) + 1;
+  });
+  const map = {};
+  Object.entries(acc).forEach(([nm,locs])=>{
+    map[nm] = Object.entries(locs).sort((a,b)=>b[1]-a[1])[0][0]; // lokasi majoriti orang itu
+  });
+  return map;
+}
+function effLoc(r){                                   // lokasi berkesan: terus -> ikut nama -> ikut syarikat
+  const direct = locBucket(r["Location"]);
+  if(direct !== "Lain-lain") return direct;
+  const byName = LOCMAP[canonName(r)];               // 1) lokasi orang itu sendiri
+  if(byName) return byName;
+  const byCo = CO_LOCMAP[canonCo(r)];                // 2) lokasi majoriti syarikat dia
+  if(byCo) return byCo;
+  return "Lain-lain";
+}
+
+// ===== Lokasi majoriti ikut SYARIKAT (untuk infer pelawat yang takde lokasi sendiri) =====
+let CO_LOCMAP = {};
+function buildCoLocMap(records){
+  const acc = {};
+  records.forEach(r=>{
+    const b = locBucket(r["Location"]);
+    if(b === "Lain-lain") return;
+    const c = canonCo(r); if(!c || c==="—") return;
+    (acc[c] = acc[c] || {})[b] = (acc[c][b]||0) + 1;
+  });
+  const map = {};
+  Object.entries(acc).forEach(([c,locs])=>{ map[c] = Object.entries(locs).sort((a,b)=>b[1]-a[1])[0][0]; });
+  return map;
+}
+
+// ===== Backfill jenis pelawat: nama sama yang pernah ada jenis -> isi yang kosong =====
+let TYPEMAP = {}, TYPE_BY_ID = {};
+function docId(r){                                     // baca no dokumen/IC, dinormalisasi
+  for(const k of ["Document No","Document Number","Doc No","IC No","ICNo","NRIC","MyKad","Passport","Identity"]){
+    const v = String(r[k]||"").replace(/[^A-Z0-9]/gi,"").toUpperCase();
+    if(v) return v;
+  }
+  return "";
+}
+function buildTypeMap(records){
+  const accN = {}, accI = {};
+  records.forEach(r=>{
+    const v = String(r["VisitorType"]||"").trim(); if(!v) return;
+    const nm = canonName(r); if(nm){ (accN[nm]=accN[nm]||{})[v]=(accN[nm][v]||0)+1; }
+    const id = docId(r);      if(id){ (accI[id]=accI[id]||{})[v]=(accI[id][v]||0)+1; }
+  });
+  TYPE_BY_ID = {};
+  Object.entries(accI).forEach(([id,t])=>{ TYPE_BY_ID[id]=Object.entries(t).sort((a,b)=>b[1]-a[1])[0][0]; });
+  const map = {};
+  Object.entries(accN).forEach(([nm,t])=>{ map[nm]=Object.entries(t).sort((a,b)=>b[1]-a[1])[0][0]; });
+  return map;
+}
+function effType(r){
+  const v = String(r["VisitorType"]||"").trim();
+  if(v) return v;                                      // 1) jenis sendiri
+  const id = docId(r);
+  if(id && TYPE_BY_ID[id]) return TYPE_BY_ID[id];      // 2) backfill ikut IC (paling tepat)
+  const byName = TYPEMAP[canonName(r)];
+  if(byName) return byName;                            // 3) backfill ikut nama (macam jadual kekerapan)
+  return "Visitor";                                    // 4) masih takde -> default Visitor (bersihkan data)
+}
+
+// ===== Donut Jenis Pelawat: kira ORANG UNIK (bukan lawatan), boleh tapis ikut bulan =====
+let typeMonth = "ALL";          // "ALL" = sepanjang masa (default)
+let lastTypeRecs = [];
+function renderTypeMonths(records){
+  const set = {};
+  records.forEach(r=>{ const k=monthKeyOf(r); if(k) set[k]=true; });
+  const keys = Object.keys(set).sort().reverse();
+  let html = `<button class="mbtn${typeMonth==="ALL"?' active':''}" onclick="setTypeMonth('ALL')">Sepanjang Masa</button>`;
+  keys.forEach(k=>{ html += `<button class="mbtn${typeMonth===k?' active':''}" onclick="setTypeMonth('${k}')">${monthLabelOf(k)}</button>`; });
+  document.getElementById("typeMonths").innerHTML = html;
+}
+function renderTypeDonut(records){
+  lastTypeRecs = records;
+  renderTypeMonths(records);
+  const scope = (typeMonth==="ALL") ? records : records.filter(r=>monthKeyOf(r)===typeMonth);
+  // kumpul ikut ORANG unik (nama kanonik), tentukan jenis majoriti tiap orang
+  const byPerson = {};
+  scope.forEach(r=>{ const nm=canonName(r); if(!nm) return; (byPerson[nm]=byPerson[nm]||[]).push(r); });
+  const cnt = {"Visitor":0,"Contractor":0,"Tidak Dinyatakan":0};
+  Object.values(byPerson).forEach(rows=>{ const t=mostCommon(rows.map(effType)); cnt[t]=(cnt[t]||0)+1; });
+  // susun: Visitor, Contractor dulu; Tidak Dinyatakan akhir (kelabu) supaya jumlah = orang unik
+  const order = [];
+  ["Visitor","Contractor"].forEach(t=>{ if(cnt[t]>0) order.push(t); });
+  Object.keys(cnt).forEach(t=>{ if(t!=="Tidak Dinyatakan" && !order.includes(t) && cnt[t]>0) order.push(t); });
+  if(cnt["Tidak Dinyatakan"]>0) order.push("Tidak Dinyatakan");
+  const data = order.map(t=>[t,cnt[t]]);
+  const colors = order.map(t=> t==="Visitor"?"#B8902E" : t==="Contractor"?"#C8102E" : t==="Tidak Dinyatakan"?"#cfc9bf" : "#6b665f");
+  donut("chartType", data, colors);
+}
+function setTypeMonth(key){ typeMonth = key; renderTypeDonut(lastTypeRecs); }
+
+// ===== Carta lawatan ikut bulan (x=bulan, y=jumlah lawatan sebenar) =====
+function renderMonthChart(records){
+  const map = {};
+  records.forEach(r=>{ const k=monthKeyOf(r); if(k) map[k]=(map[k]||0)+1; });
+  const keys = Object.keys(map).sort();
+  const now = new Date();
+  // Mula dari bulan TERAWAL ada data (kiri sekali), pad ke depan hingga Dis tahun semasa
+  let cur = keys.length ? new Date(+keys[0].split("-")[0], +keys[0].split("-")[1]-1, 1)
+                        : new Date(now.getFullYear(), now.getMonth(), 1);
+  const endYear = Math.max(now.getFullYear(), keys.length ? +keys[keys.length-1].split("-")[0] : now.getFullYear());
+  const end = new Date(endYear, 11, 1);
+  const slots = [];
+  while(cur <= end && slots.length < 36){
+    slots.push(cur.getFullYear()+"-"+String(cur.getMonth()+1).padStart(2,"0"));
+    cur.setMonth(cur.getMonth()+1);
+  }
+  barV("chartMonth", slots.map(monthLabelOf), slots.map(k=>map[k]||0), "#B8902E");
+}
+
+// ===== Pelawat paling kerap (jangkar: NAMA seragam + LOKASI) =====
 let freqExpanded = false;
+let freqMonth = "ALL";        // "ALL" = sepanjang masa (default)
+let freqLoc = "ALL";          // "ALL" = semua lokasi (default)
+const FREQ_LOCS = ["Hangar Kuching","Hangar MYY","Hangar HAS"];
+let lastFreqRecs = [];
 function mostCommon(arr){
   const c = {}; let best="—", bestN=0;
   arr.forEach(v=>{ v=String(v||"").trim(); if(!v) return; c[v]=(c[v]||0)+1; if(c[v]>bestN){bestN=c[v];best=v;} });
   return best;
 }
 function topVisitors(records){
+  let recs = (freqMonth==="ALL") ? records : records.filter(r=>monthKeyOf(r)===freqMonth);
+  if(freqLoc!=="ALL") recs = recs.filter(r=>effLoc(r)===freqLoc);   // tapis ikut lokasi
   const map = {};
-  records.forEach(r=>{
-    const name = String(r["Visitor Name"]||"").trim(); if(!name) return;
-    (map[name] = map[name] || []).push(r);
+  recs.forEach(r=>{
+    const cn = canonName(r); if(!cn) return;
+    const loc = effLoc(r);
+    const key = cn + "||" + loc;                     // split ikut nama kanonik + lokasi
+    (map[key] = map[key] || {name:cn, loc, rows:[]}).rows.push(r);
   });
-  return Object.entries(map).map(([name,rs])=>({
-    name,
-    company: mostCommon(rs.map(x=>x["Company"])),
-    purpose: mostCommon(rs.map(x=>x["Purpose of Visit"])),
-    count: rs.length
+  return Object.values(map).map(g=>({
+    name:     g.name,                                  // nama kanonik (paling lengkap)
+    company:  mostCommon(g.rows.map(x=>canonCo(x))),         // ejaan syarikat disatukan
+    location: g.loc,
+    purpose:  mostCommon(g.rows.map(x=>x["Purpose of Visit"])), // majoriti
+    count:    g.rows.length
   })).sort((a,b)=> b.count-a.count || a.name.localeCompare(b.name));
 }
+function renderFreqLocs(){
+  let html = `<span class="fltlbl">Lokasi</span><button class="mbtn loc${freqLoc==="ALL"?' active':''}" onclick="setFreqLoc('ALL')">Semua</button>`;
+  FREQ_LOCS.forEach(l=>{ html += `<button class="mbtn loc${freqLoc===l?' active':''}" onclick="setFreqLoc('${l}')">${l}</button>`; });
+  document.getElementById("freqLocs").innerHTML = html;
+}
+function renderFreqMonths(records){
+  const set = {};
+  records.forEach(r=>{ const k=monthKeyOf(r); if(k) set[k]=true; });
+  const keys = Object.keys(set).sort().reverse();   // bulan terbaru dulu
+  let html = `<span class="fltlbl">Bulan</span><button class="mbtn${freqMonth==="ALL"?' active':''}" onclick="setFreqMonth('ALL')">Sepanjang Masa</button>`;
+  keys.forEach(k=>{ html += `<button class="mbtn${freqMonth===k?' active':''}" onclick="setFreqMonth('${k}')">${monthLabelOf(k)}</button>`; });
+  document.getElementById("freqMonths").innerHTML = html;
+}
 function renderTopVisitors(records){
+  lastFreqRecs = records;
+  renderFreqLocs();
+  renderFreqMonths(records);
   const list = topVisitors(records);
   const wrap = document.getElementById("freqWrap");
   const btn  = document.getElementById("freqBtn");
-  if(!list.length){ wrap.innerHTML='<div class="empty">Takde data pelawat.</div>'; btn.style.display="none"; return; }
+  if(!list.length){ wrap.innerHTML='<div class="empty">Takde data untuk tempoh ini.</div>'; btn.style.display="none"; return; }
   let html = `<table class="freq${freqExpanded?' expanded':''}"><thead><tr>
-    <th>No.</th><th>Visitor Name</th><th>Company</th><th>Purpose (paling kerap)</th><th style="text-align:right">Kekerapan</th>
+    <th>No.</th><th>Visitor Name</th><th>Company</th><th>Lokasi</th><th>Purpose (majoriti)</th><th style="text-align:right">Kekerapan</th>
     </tr></thead><tbody>`;
   list.forEach((v,i)=>{
     const extra = i>=5 ? ' class="extra"' : '';
@@ -448,6 +757,7 @@ function renderTopVisitors(records){
       <td class="rank">${i+1}</td>
       <td class="name">${esc(v.name)}</td>
       <td>${esc(v.company)}</td>
+      <td>${esc(v.location)}</td>
       <td>${esc(v.purpose)}</td>
       <td class="mono" style="text-align:right"><strong>${v.count}</strong></td>
     </tr>`;
@@ -455,8 +765,18 @@ function renderTopVisitors(records){
   wrap.innerHTML = html + "</tbody></table>";
   if(list.length > 5){
     btn.style.display = "inline-block";
-    btn.textContent = freqExpanded ? "Tutup ▲" : ("Lihat semua "+list.length+" pelawat ▼");
+    btn.textContent = freqExpanded ? "Tutup ▲" : ("Lihat semua "+list.length+" baris ▼");
   } else { btn.style.display = "none"; }
+}
+function setFreqMonth(key){
+  freqMonth = key;
+  freqExpanded = false;
+  renderTopVisitors(lastFreqRecs);
+}
+function setFreqLoc(loc){
+  freqLoc = loc;
+  freqExpanded = false;
+  renderTopVisitors(lastFreqRecs);
 }
 function toggleFreq(){
   freqExpanded = !freqExpanded;
@@ -465,8 +785,20 @@ function toggleFreq(){
   if(tbl){
     tbl.classList.toggle("expanded", freqExpanded);
     const total = tbl.querySelectorAll("tbody tr").length;
-    btn.textContent = freqExpanded ? "Tutup ▲" : ("Lihat semua "+total+" pelawat ▼");
+    btn.textContent = freqExpanded ? "Tutup ▲" : ("Lihat semua "+total+" baris ▼");
   }
+}
+
+// ===== Pembersihan: buang staf dalaman (HSSB/Hornbill) & entri ujian =====
+function isInternalOrTest(r){
+  const co = String(r["Company"]||"").toUpperCase();
+  const pu = String(r["Purpose of Visit"]||"").toUpperCase();
+  const nm = String(r["Visitor Name"]||"").toUpperCase().replace(/\s+/g," ").trim();
+  if(co.includes("HSSB") || co.includes("HORNBILL")) return true;   // staf dalaman
+  if(/TEST|DUMMY/.test(pu) || /TEST|DUMMY/.test(nm)) return true;    // entri ujian (TEST/DUMMY)
+  if(nm.includes("ISMAIL") && nm.includes("YAKUB")) return true;     // nama operator sendiri (entri test)
+  if(nm==="JDJDJ" || co.includes("JRJRJ")) return true;             // entri gibberish (test)
+  return false;
 }
 
 async function load(){
@@ -475,20 +807,32 @@ async function load(){
     const res = await fetch("https://raw.githubusercontent.com/mohdismailyakub/hssb-vef-dashboard/main/data.json?t=" + Date.now(), {cache:"no-store"});
     if(!res.ok) throw new Error(res.status);
     const d = await res.json();
-    const recs = d.records || [];
+    const raw  = d.records || [];
+    const recs = raw.filter(r=>!isInternalOrTest(r));   // pelawat tulen sahaja
+    const filteredOut = raw.length - recs.length;
+    NAMECANON = buildNameCanon(recs);                   // satukan nama dipotong/typo
+    COCANON = buildCoCanon(recs);                       // satukan ejaan syarikat
+    applyCompanyNameMerge(recs);                        // PERISAI: typo nama disahkan company sama
+    LOCMAP = buildLocMap(recs);                         // backfill lokasi ikut nama
+    CO_LOCMAP = buildCoLocMap(recs);                    // lokasi majoriti ikut syarikat
+    TYPEMAP = buildTypeMap(recs);                        // backfill jenis pelawat ikut nama
     const todayRecs = recs.filter(r=>isToday(r["Submitted At"]));
 
     document.getElementById("kMonth").textContent  = recs.filter(r=>isThisMonth(r["Submitted At"])).length;
     document.getElementById("kToday").textContent  = todayRecs.length;
     document.getElementById("kInside").textContent = recs.filter(isInside).length;
     document.getElementById("kAvg").textContent    = fmtDur(avgDuration(recs));
+    document.getElementById("kDistinct").textContent =
+      new Set(recs.filter(r=>isThisMonth(r["Submitted At"])).map(r=>canonName(r)).filter(Boolean)).size;
     document.getElementById("monthName").textContent =
       new Date().toLocaleDateString("en-MY",{month:"long",year:"numeric"});
     document.getElementById("todayDate").textContent =
       new Date().toLocaleDateString("en-MY",{weekday:"long",day:"numeric",month:"long"});
 
-    donut("chartType", Object.entries(groupCount(recs,"VisitorType")).sort((a,b)=>b[1]-a[1]));
-    barH("chartCompany", topN(recs,"Company"), "#B8902E");
+    renderTypeDonut(recs);
+    const coCount = {};
+    recs.forEach(r=>{ const c=canonCo(r); if(c && c!=="—") coCount[c]=(coCount[c]||0)+1; });
+    barH("chartCompany", Object.entries(coCount).sort((a,b)=>b[1]-a[1]).slice(0,7), "#B8902E");
 
     const loc = groupCount(todayRecs,"Location");
     const locE = Object.entries(loc).sort((a,b)=>b[1]-a[1]);
@@ -498,13 +842,14 @@ async function load(){
     line("chartTrend", t.labels, t.counts);
 
     renderTable(recs);
-    renderMonthSummary(recs);
+    renderMonthChart(recs);
     renderTopVisitors(recs);
 
     dot.style.background = "var(--ok)";
     status.textContent = "Live · dikemaskini " + fmtTime(d.generated_at);
     document.getElementById("foot").textContent =
-      "Data dari SharePoint via Power Automate · auto-refresh setiap " + (REFRESH_MS/1000) + " saat";
+      "Data dari SharePoint via Power Automate · auto-refresh setiap " + (REFRESH_MS/1000) + " saat"
+      + (filteredOut ? " · " + filteredOut + " entri dalaman/ujian disaring" : "");
   }catch(e){
     dot.style.background = "var(--red)";
     status.textContent = "Gagal muat data — cuba lagi…";
