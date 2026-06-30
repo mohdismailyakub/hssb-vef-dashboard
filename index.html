@@ -834,8 +834,9 @@ async function load(){
     recs.forEach(r=>{ const c=canonCo(r); if(c && c!=="—") coCount[c]=(coCount[c]||0)+1; });
     barH("chartCompany", Object.entries(coCount).sort((a,b)=>b[1]-a[1]).slice(0,7), "#B8902E");
 
-    const loc = groupCount(todayRecs,"Location");
-    const locE = Object.entries(loc).sort((a,b)=>b[1]-a[1]);
+    const locCount = {};
+    todayRecs.forEach(r=>{ const b=effLoc(r); locCount[b]=(locCount[b]||0)+1; });  // guna effLoc (backfill), bukan Location mentah
+    const locE = Object.entries(locCount).sort((a,b)=>b[1]-a[1]);
     barV("chartLoc", locE.map(e=>e[0]), locE.map(e=>e[1]), "#3a352e");
 
     const t = trendSeries(recs);
