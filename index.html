@@ -52,6 +52,9 @@
   .mbtn.active{background:var(--gold);border-color:var(--gold);color:#fff}
   .fltlbl{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;align-self:center;text-transform:uppercase}
   .mbtn.loc.active{background:#C8102E;border-color:#C8102E;color:#fff}
+  .mbtn.view.active{background:#C8102E;border-color:#C8102E;color:#fff}
+  .mbtn.disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
+  .hint{font-size:10.5px;color:#a59f93;font-style:italic;align-self:center;margin-left:2px}
   .rank{font-weight:800;color:var(--gold);font-variant-numeric:tabular-nums}
   .totrow td{border-top:2px solid var(--line);font-weight:700}
   .grid2{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin:14px 0}
@@ -129,11 +132,14 @@
     <div class="panel">
       <h2>Jenis Pelawat <span style="font-weight:400;font-size:12px;color:#8a857c">(orang unik)</span></h2>
       <div class="chartbox"><canvas id="chartType"></canvas></div>
+      <div id="typeView" class="monthbtns"></div>
+      <div id="typeLocs" class="monthbtns"></div>
       <div id="typeMonths" class="monthbtns"></div>
     </div>
     <div class="panel">
       <h2>Top Syarikat / Agensi</h2>
       <div class="chartbox"><canvas id="chartCompany"></canvas></div>
+      <div id="coLocs" class="monthbtns"></div>
     </div>
     <div class="panel">
       <h2>Hari Ini ikut Lokasi</h2>
@@ -679,27 +685,63 @@ function effType(r){
   return "Visitor";                                    // 4) masih takde -> default Visitor (bersihkan data)
 }
 
-// ===== Donut Jenis Pelawat: kira ORANG UNIK (bukan lawatan), boleh tapis ikut bulan =====
+// ===== Donut Jenis Pelawat: ORANG UNIK; toggle Jenis/Lokasi + tapis lokasi + tapis bulan =====
 let typeMonth = "ALL";          // "ALL" = sepanjang masa (default)
+let typeView  = "jenis";        // "jenis" | "lokasi" (default: jenis)
+let typeLoc   = "ALL";          // "ALL" = semua lokasi (default); aktif masa view jenis
+const TYPE_LOCS = ["Hangar Kuching","Hangar MYY","Hangar HAS"];
 let lastTypeRecs = [];
 function renderTypeMonths(records){
   const set = {};
   records.forEach(r=>{ const k=monthKeyOf(r); if(k) set[k]=true; });
   const keys = Object.keys(set).sort().reverse();
-  let html = `<button class="mbtn${typeMonth==="ALL"?' active':''}" onclick="setTypeMonth('ALL')">Sepanjang Masa</button>`;
+  let html = `<span class="fltlbl">Bulan</span><button class="mbtn${typeMonth==="ALL"?' active':''}" onclick="setTypeMonth('ALL')">Sepanjang Masa</button>`;
   keys.forEach(k=>{ html += `<button class="mbtn${typeMonth===k?' active':''}" onclick="setTypeMonth('${k}')">${monthLabelOf(k)}</button>`; });
   document.getElementById("typeMonths").innerHTML = html;
+}
+function renderTypeView(){
+  document.getElementById("typeView").innerHTML =
+    `<span class="fltlbl">Papar</span>`
+    + `<button class="mbtn view${typeView==="jenis"?' active':''}" onclick="setTypeView('jenis')">Ikut Jenis</button>`
+    + `<button class="mbtn view${typeView==="lokasi"?' active':''}" onclick="setTypeView('lokasi')">Ikut Lokasi</button>`;
+}
+function renderTypeLocs(){
+  const dis = typeView==="lokasi";
+  let html = `<span class="fltlbl">Lokasi</span>`
+    + `<button class="mbtn loc${typeLoc==="ALL"&&!dis?' active':''}${dis?' disabled':''}" onclick="setTypeLoc('ALL')">Semua</button>`;
+  TYPE_LOCS.forEach(l=>{ html += `<button class="mbtn loc${typeLoc===l&&!dis?' active':''}${dis?' disabled':''}" onclick="setTypeLoc('${l}')">${l}</button>`; });
+  if(dis) html += `<span class="hint">— ikut lokasi sudah dipecah</span>`;
+  document.getElementById("typeLocs").innerHTML = html;
 }
 function renderTypeDonut(records){
   lastTypeRecs = records;
   renderTypeMonths(records);
+  renderTypeView();
+  renderTypeLocs();
   const scope = (typeMonth==="ALL") ? records : records.filter(r=>monthKeyOf(r)===typeMonth);
-  // kumpul ikut ORANG unik (nama kanonik), tentukan jenis majoriti tiap orang
+  // kumpul ikut ORANG unik (nama kanonik)
   const byPerson = {};
   scope.forEach(r=>{ const nm=canonName(r); if(!nm) return; (byPerson[nm]=byPerson[nm]||[]).push(r); });
+
+  if(typeView==="lokasi"){
+    // pecah orang unik ikut hangar majoriti dia
+    const cnt = {};
+    Object.values(byPerson).forEach(rows=>{ const loc=mostCommon(rows.map(effLoc)); cnt[loc]=(cnt[loc]||0)+1; });
+    const order = [];
+    TYPE_LOCS.forEach(l=>{ if(cnt[l]>0) order.push(l); });
+    Object.keys(cnt).forEach(l=>{ if(!order.includes(l) && cnt[l]>0) order.push(l); });
+    const data = order.map(l=>[l,cnt[l]]);
+    const cmap = {"Hangar HAS":"#B8902E","Hangar Kuching":"#C8102E","Hangar MYY":"#3a352e"};
+    const colors = order.map((l,i)=> cmap[l] || PALETTE[i%PALETTE.length]);
+    donut("chartType", data, colors);
+    return;
+  }
+
+  // view JENIS (boleh tapis ikut lokasi)
+  let persons = Object.values(byPerson);
+  if(typeLoc!=="ALL") persons = persons.filter(rows=> mostCommon(rows.map(effLoc))===typeLoc);
   const cnt = {"Visitor":0,"Contractor":0,"Tidak Dinyatakan":0};
-  Object.values(byPerson).forEach(rows=>{ const t=mostCommon(rows.map(effType)); cnt[t]=(cnt[t]||0)+1; });
-  // susun: Visitor, Contractor dulu; Tidak Dinyatakan akhir (kelabu) supaya jumlah = orang unik
+  persons.forEach(rows=>{ const t=mostCommon(rows.map(effType)); cnt[t]=(cnt[t]||0)+1; });
   const order = [];
   ["Visitor","Contractor"].forEach(t=>{ if(cnt[t]>0) order.push(t); });
   Object.keys(cnt).forEach(t=>{ if(t!=="Tidak Dinyatakan" && !order.includes(t) && cnt[t]>0) order.push(t); });
@@ -709,6 +751,29 @@ function renderTypeDonut(records){
   donut("chartType", data, colors);
 }
 function setTypeMonth(key){ typeMonth = key; renderTypeDonut(lastTypeRecs); }
+function setTypeView(v){ typeView = v; if(v==="lokasi") typeLoc="ALL"; renderTypeDonut(lastTypeRecs); }
+function setTypeLoc(l){ if(typeView==="lokasi") return; typeLoc = l; renderTypeDonut(lastTypeRecs); }
+
+// ===== Top Syarikat / Agensi: default Semua, boleh tapis ikut lokasi =====
+let coLoc = "ALL";
+let lastCoRecs = [];
+const CO_LOCS = ["Hangar Kuching","Hangar MYY","Hangar HAS"];
+function renderCoLocs(){
+  let html = `<span class="fltlbl">Lokasi</span><button class="mbtn loc${coLoc==="ALL"?' active':''}" onclick="setCoLoc('ALL')">Semua</button>`;
+  CO_LOCS.forEach(l=>{ html += `<button class="mbtn loc${coLoc===l?' active':''}" onclick="setCoLoc('${l}')">${l}</button>`; });
+  document.getElementById("coLocs").innerHTML = html;
+}
+function renderCompany(records){
+  lastCoRecs = records;
+  renderCoLocs();
+  const recs = (coLoc==="ALL") ? records : records.filter(r=>effLoc(r)===coLoc);
+  const coCount = {};
+  recs.forEach(r=>{ const c=canonCo(r); if(c && c!=="\u2014") coCount[c]=(coCount[c]||0)+1; });
+  const top = Object.entries(coCount).sort((a,b)=>b[1]-a[1]).slice(0,7);
+  if(charts["chartCompany"]) charts["chartCompany"].destroy();
+  if(top.length) barH("chartCompany", top, "#B8902E");
+}
+function setCoLoc(l){ coLoc = l; renderCompany(lastCoRecs); }
 
 // ===== Carta lawatan ikut bulan, DIPECAH ikut lokasi (stacked: Kuching/MYY/HAS) =====
 function renderMonthChart(records){
@@ -867,9 +932,7 @@ async function load(){
       new Date().toLocaleDateString("en-MY",{weekday:"long",day:"numeric",month:"long"});
 
     renderTypeDonut(recs);
-    const coCount = {};
-    recs.forEach(r=>{ const c=canonCo(r); if(c && c!=="—") coCount[c]=(coCount[c]||0)+1; });
-    barH("chartCompany", Object.entries(coCount).sort((a,b)=>b[1]-a[1]).slice(0,7), "#B8902E");
+    renderCompany(recs);
 
     const locCount = {};
     todayRecs.forEach(r=>{ const b=effLoc(r); locCount[b]=(locCount[b]||0)+1; });  // guna effLoc (backfill), bukan Location mentah
