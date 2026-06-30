@@ -150,7 +150,7 @@
 
   <section class="grid2">
     <div class="panel">
-      <h2>Lawatan ikut Bulan</h2>
+      <h2>Lawatan ikut Bulan <span style="font-weight:400;font-size:12px;color:#8a857c">(ikut lokasi)</span></h2>
       <div class="chartbox"><canvas id="chartMonth"></canvas></div>
     </div>
     <div class="panel">
@@ -264,6 +264,19 @@ function barV(id, labels, values, color){
       plugins:{legend:{display:false},datalabels:{display:false}},
       scales:{x:{grid:{display:false},ticks:{color:"#1a1816",font:{size:11}}},
               y:{grid:{color:"#f0ece3"},ticks:{precision:0,color:"#6b665f"}}}}});
+}
+function barStacked(id, labels, datasets){           // bar bertindan (stacked) ikut lokasi
+  const ctx = document.getElementById(id);
+  if(charts[id]) charts[id].destroy();
+  charts[id] = new Chart(ctx,{type:"bar",
+    data:{labels, datasets:datasets.map(ds=>({label:ds.label, data:ds.data, backgroundColor:ds.color,
+      borderRadius:3, maxBarThickness:46, stack:"loc"}))},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:"top",labels:{boxWidth:11,font:{size:11},color:"#3a352e",usePointStyle:true,pointStyle:"rectRounded"}},
+        datalabels:{display:false},
+        tooltip:{mode:"index",callbacks:{footer:(items)=>"Jumlah: "+items.reduce((a,i)=>a+i.raw,0)}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{color:"#1a1816",font:{size:11}}},
+              y:{stacked:true,grid:{color:"#f0ece3"},ticks:{precision:0,color:"#6b665f"}}}}});
 }
 function donut(id, data, colors){
   const ctx = document.getElementById(id);
@@ -679,10 +692,12 @@ function renderTypeDonut(records){
 }
 function setTypeMonth(key){ typeMonth = key; renderTypeDonut(lastTypeRecs); }
 
-// ===== Carta lawatan ikut bulan (x=bulan, y=jumlah lawatan sebenar) =====
+// ===== Carta lawatan ikut bulan, DIPECAH ikut lokasi (stacked: Kuching/MYY/HAS) =====
 function renderMonthChart(records){
-  const map = {};
-  records.forEach(r=>{ const k=monthKeyOf(r); if(k) map[k]=(map[k]||0)+1; });
+  const LOCS = ["Hangar Kuching","Hangar MYY","Hangar HAS","Lain-lain"];
+  const COLORS = {"Hangar Kuching":"#B8902E","Hangar MYY":"#C8102E","Hangar HAS":"#3a352e","Lain-lain":"#cfc9bf"};
+  const map = {};                                    // bulan -> {lokasi: kiraan}
+  records.forEach(r=>{ const k=monthKeyOf(r); if(!k) return; const b=effLoc(r); (map[k]=map[k]||{})[b]=(map[k][b]||0)+1; });
   const keys = Object.keys(map).sort();
   const now = new Date();
   // Mula dari bulan TERAWAL ada data (kiri sekali), pad ke depan hingga Dis tahun semasa
@@ -695,7 +710,10 @@ function renderMonthChart(records){
     slots.push(cur.getFullYear()+"-"+String(cur.getMonth()+1).padStart(2,"0"));
     cur.setMonth(cur.getMonth()+1);
   }
-  barV("chartMonth", slots.map(monthLabelOf), slots.map(k=>map[k]||0), "#B8902E");
+  // hanya tunjuk lokasi yang ada data (cth sembunyi Lain-lain/HAS kalau 0)
+  const present = LOCS.filter(L => slots.some(k => (map[k]||{})[L]));
+  const datasets = present.map(L => ({ label:L, color:COLORS[L], data:slots.map(k=>(map[k]||{})[L]||0) }));
+  barStacked("chartMonth", slots.map(monthLabelOf), datasets);
 }
 
 // ===== Pelawat paling kerap (jangkar: NAMA seragam + LOKASI) =====
