@@ -1,13 +1,12 @@
 name: VEF Dashboard Sync
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
+  workflow_dispatch:        # <-- HANYA ini. schedule DIBUANG.
+                            #     Trigger datang dari cron-job.org sahaja.
 
 concurrency:
   group: vef-sync
-  cancel-in-progress: false
+  cancel-in-progress: true  # <-- self-healing kalau ada run degil
 
 permissions:
   contents: write
@@ -15,6 +14,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 5       # <-- bukan 6 jam lagi
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -23,14 +23,17 @@ jobs:
         env:
           VEF_URL: ${{ secrets.VEF_URL }}
         run: |
-          curl -fL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
+          curl -fL --connect-timeout 15 --max-time 90 \
+               --retry 3 --retry-delay 5 --retry-all-errors \
+               -w "HTTP %{http_code} | %{size_download} bytes | %{time_total}s\n" \
+               -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
                -c /tmp/cj.txt -b /tmp/cj.txt \
                "$VEF_URL" -o data.json
-          python3 -c "import json; json.load(open('data.json')); print('JSON OK')"
+          python3 -c "import json;d=json.load(open('data.json'));print('JSON OK -',len(d['records']),'records')"
 
       - name: Commit & push (retry)
         run: |
-          echo "=== VEF SYNC v4 ==="
+          echo "=== VEF SYNC v5 ==="
           git config user.name "vef-bot"
           git config user.email "vef-bot@users.noreply.github.com"
           cp data.json /tmp/data.json
@@ -45,7 +48,7 @@ jobs:
             fi
             git commit -m "VEF sync: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
             if git push origin HEAD:main; then
-              echo "Pushed OK v4."
+              echo "Pushed OK v5."
               exit 0
             fi
             echo "Race, retry $i..."
