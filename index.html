@@ -114,7 +114,7 @@
     <div class="kpi alert">
       <div class="label">Masih Di Dalam</div>
       <div class="num" id="kInside">—</div>
-      <div class="sub">Pass belum dipulangkan</div>
+      <div class="sub" id="kInsideSub">Pass belum dipulangkan</div>
     </div>
     <div class="kpi">
       <div class="label">Anggaran Waktu Lawatan</div>
@@ -167,6 +167,12 @@
       <button id="freqBtn" class="morebtn" style="display:none" onclick="toggleFreq()">Lihat semua ▼</button>
     </div>
   </section>
+
+  <div class="panel" id="overduePanel" style="border-left:4px solid var(--inside)">
+    <h2 style="color:var(--inside)">⚠ Belum Pulang — Lewat Tarikh <span style="font-weight:400;font-size:12px;color:#8a857c">(Status "In Premises" tapi Date of Entry bukan hari ini)</span></h2>
+    <div id="overdueWrap" style="overflow-x:auto"><div class="empty">Memuatkan…</div></div>
+    <div class="note">Check silang Status vs Date of Entry merentas SEMUA rekod (bukan hari ini sahaja) · pass yang tertinggal akan kekal di sini sampai status ditukar ke Returned</div>
+  </div>
 
   <div class="panel">
     <h2>Entri Hari Ini</h2>
@@ -249,6 +255,31 @@ function isReturned(r){
 // rekod lama yang status kosong tak terkira. Padan dengan Power BI.
 function isInside(r){
   return String(r && r.Status || "").trim().toLowerCase().includes("premise");
+}
+
+// "Date of Entry" -> Date object sebenar (logic serial Excel sama macam fmtEntryDate)
+function entryDateObj(r){
+  const v = r && r["Date of Entry"];
+  const n = (typeof v === "number") ? v
+          : (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))) ? Number(v) : null;
+  if(n !== null && n > 1){
+    const d = new Date(Math.round((n - 25569) * 86400000));
+    if(!isNaN(d)) return d;
+  }
+  return parseDate(v) || parseDate(r && r["Submitted At"]);
+}
+// Berapa hari sejak Date of Entry (bandingkan tarikh kalendar, bukan jam-ke-jam)
+function daysSinceEntry(r){
+  const d = entryDateObj(r);
+  if(!d) return 0;
+  const n = new Date();
+  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const b = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  return Math.round((b - a) / 86400000);
+}
+// Overdue = masih "In Premises" TAPI Date of Entry bukan hari ini (dah lepas >=1 hari)
+function isOverdue(r){
+  return isInside(r) && daysSinceEntry(r) > 0;
 }
 
 function barH(id, data, color){
@@ -423,6 +454,42 @@ function renderTable(records){
     html += `<div style="overflow-x:auto">${buildTable(rows)}</div>`;
   });
   document.getElementById("tableWrap").innerHTML = html;
+}
+
+// ===== Table "Belum Pulang — Lewat Tarikh" (overdue merentas semua tarikh) =====
+function buildOverdueTable(rows){
+  rows = rows.slice().sort((a,b)=> daysSinceEntry(b) - daysSinceEntry(a));  // paling lama tertinggal dulu
+  let html = `<table><thead><tr>
+    <th>No.</th><th>Visitor Name</th><th>Company</th><th>Retained By</th><th>Pass No</th>
+    <th>Lokasi</th><th>Date of Entry</th><th>Hari Tertinggal</th><th>Purpose</th>
+    </tr></thead><tbody>`;
+  rows.forEach((r,i)=>{
+    const days = daysSinceEntry(r);
+    html += `<tr>
+      <td class="mono">${i+1}</td>
+      <td class="name">${esc(r["Visitor Name"]||"—")}</td>
+      <td>${esc(r["Company"]||"—")}</td>
+      <td>${esc(r["Retained By (AVSEC)"]||"—")}</td>
+      <td class="mono">${esc(r["PassNoIssued"]||r["Daily Pass No"]||"—")}</td>
+      <td>${esc(effLoc(r)||"—")}</td>
+      <td class="mono">${fmtEntryDate(r["Date of Entry"], r["Submitted At"])}</td>
+      <td><span class="badge in">${days} hari</span></td>
+      <td>${esc(r["Purpose of Visit"]||"—")}</td>
+    </tr>`;
+  });
+  return html + "</tbody></table>";
+}
+function renderOverdue(records){
+  const rows = records.filter(isOverdue);
+  const wrap = document.getElementById("overdueWrap");
+  const panel = document.getElementById("overduePanel");
+  if(!rows.length){
+    wrap.innerHTML = '<div class="empty">Tiada — semua "In Premises" adalah entri hari ini.</div>';
+    if(panel) panel.style.opacity = "0.55";
+    return;
+  }
+  if(panel) panel.style.opacity = "1";
+  wrap.innerHTML = buildOverdueTable(rows);
 }
 
 // ===== Normalisasi nama (jangkar dedup) =====
@@ -923,6 +990,9 @@ async function load(){
     document.getElementById("kMonth").textContent  = recs.filter(r=>isThisMonth(r["Submitted At"])).length;
     document.getElementById("kToday").textContent  = todayRecs.length;
     document.getElementById("kInside").textContent = recs.filter(isInside).length;
+    const overdueCount = recs.filter(isOverdue).length;
+    document.getElementById("kInsideSub").textContent =
+      overdueCount>0 ? overdueCount+" tertinggal bukan hari ini ⚠" : "Pass belum dipulangkan";
     document.getElementById("kAvg").textContent    = fmtDur(avgDuration(recs));
     document.getElementById("kDistinct").textContent =
       new Set(recs.filter(r=>isThisMonth(r["Submitted At"])).map(r=>canonName(r)).filter(Boolean)).size;
@@ -942,6 +1012,7 @@ async function load(){
     const t = trendSeries(recs);
     line("chartTrend", t.labels, t.counts);
 
+    renderOverdue(recs);
     renderTable(recs);
     renderMonthChart(recs);
     renderTopVisitors(recs);
